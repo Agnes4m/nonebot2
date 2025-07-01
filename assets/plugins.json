@@ -2274,6 +2274,10 @@
       {
         "label": "l4d2",
         "color": "#05ff00"
+      },
+      {
+        "label": "Alconna",
+        "color": "#ea5252"
       }
     ],
     "is_official": false
@@ -2842,6 +2846,10 @@
       {
         "label": "maimai",
         "color": "#5262ea"
+      },
+      {
+        "label": "Alconna",
+        "color": "#ea5252"
       }
     ],
     "is_official": false
@@ -3627,6 +3635,10 @@
       {
         "label": "bilibili",
         "color": "#ec15c6"
+      },
+      {
+        "label": "Alconna",
+        "color": "#ea5252"
       }
     ],
     "is_official": false
@@ -4063,18 +4075,6 @@
       {
         "label": "SD",
         "color": "#eaaf52"
-      }
-    ],
-    "is_official": false
-  },
-  {
-    "module_name": "nonebot_plugin_al",
-    "project_link": "nonebot-plugin-al",
-    "author": "Agnes4m",
-    "tags": [
-      {
-        "label": "bilibili",
-        "color": "#ea52e5"
       }
     ],
     "is_official": false
@@ -4752,18 +4752,6 @@
     "is_official": false
   },
   {
-    "module_name": "nonebot_plugin_shutup",
-    "project_link": "nonebot-plugin-shutup",
-    "author": "Agnes4m",
-    "tags": [
-      {
-        "label": "阻断",
-        "color": "#ea5252"
-      }
-    ],
-    "is_official": false
-  },
-  {
     "module_name": "nonebot_plugin_simple_httpcat",
     "project_link": "nonebot-plugin-simple-httpcat",
     "author": "XTxiaoting14332",
@@ -5075,6 +5063,14 @@
       {
         "label": "VRChat",
         "color": "#7aea53"
+      },
+      {
+        "label": "Alconna",
+        "color": "#ea5252"
+      },
+      {
+        "label": "i18n",
+        "color": "#5452ea"
       }
     ],
     "is_official": false
