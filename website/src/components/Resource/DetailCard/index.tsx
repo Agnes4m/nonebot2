@@ -1,15 +1,15 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-// @ts-expect-error: we need to make package have type: module
 import copy from "copy-text-to-clipboard";
-
-import { PyPIData } from "./types";
 
 import Tag from "@/components/Resource/Tag";
 import ValidStatus from "@/components/Resource/ValidStatus";
 import type { Resource } from "@/libs/store";
 
+import type { PyPIData } from "./types";
+
+import Avatar from "../Avatar";
 import "./styles.css";
 
 export type Props = {
@@ -72,6 +72,15 @@ export default function ResourceDetailCard({ resource }: Props) {
     }
   };
 
+  const getPluginStatusUpdatedTime = (resource: Resource) => {
+    switch (resource.resourceType) {
+      case "plugin":
+        return new Date(resource.time).toLocaleString();
+      default:
+        return null;
+    }
+  };
+
   const fetchPypiProject = (projectName: string) =>
     fetch(`https://pypi.org/pypi/${projectName}/json`)
       .then((response) => response.json())
@@ -88,27 +97,31 @@ export default function ResourceDetailCard({ resource }: Props) {
 
   useEffect(() => {
     const fetchingTasks: Promise<void>[] = [];
-    if (resource.resourceType === "bot" || resource.resourceType === "driver")
+    if (resource.resourceType === "bot" || resource.resourceType === "driver") {
       return;
+    }
 
-    if (resource.project_link)
+    if (resource.project_link) {
       fetchingTasks.push(fetchPypiProject(resource.project_link));
+    }
 
     Promise.all(fetchingTasks);
   }, [resource]);
 
   const projectLink = getProjectLink(resource) || "无";
   const moduleName = getModuleName(resource) || "无";
-  const homepageLink = getHomepageLink(resource) || undefined;
-  const pypiProjectLink = getPypiProjectLink(resource) || undefined;
+  const homepageLink = getHomepageLink(resource);
+  const pypiProjectLink = getPypiProjectLink(resource);
+  const updatedTime = getPluginStatusUpdatedTime(resource);
 
   return (
     <>
       <div className="detail-card-header">
-        <img
-          src={authorAvatar}
+        <Avatar
           className="detail-card-avatar"
-          decoding="async"
+          key={resource.author}
+          authorLink={authorLink}
+          authorAvatar={authorAvatar}
         />
         <div className="detail-card-title">
           <span className="detail-card-title-main flex items-center gap-x-1">
@@ -142,7 +155,7 @@ export default function ResourceDetailCard({ resource }: Props) {
           </button>
         </div>
       </div>
-      <div className="divider detail-card-header-divider"></div>
+      <div className="divider detail-card-header-divider" />
       <div className="detail-card-body">
         <div className="detail-card-body-left">
           <span className="h-full">{resource.desc}</span>
@@ -183,31 +196,39 @@ export default function ResourceDetailCard({ resource }: Props) {
             {(pypiData && pypiData.info.version) || "无"}
           </div>
 
-          <div className="detail-card-meta-item">
-            <FontAwesomeIcon fixedWidth icon={["fas", "fingerprint"]} />{" "}
-            <a
-              href={homepageLink}
-              target="_blank"
-              rel="noreferrer"
-              className={homepageLink && "hover:underline hover:text-primary"}
-            >
-              {moduleName}
-            </a>
-          </div>
+          {homepageLink && (
+            <div className="detail-card-meta-item">
+              <FontAwesomeIcon fixedWidth icon={["fas", "fingerprint"]} />{" "}
+              <a
+                href={homepageLink}
+                target="_blank"
+                rel="noreferrer"
+                className="detail-card-meta-item-link"
+              >
+                {moduleName}
+              </a>
+            </div>
+          )}
+
+          {pypiProjectLink && (
+            <div className="detail-card-meta-item">
+              <FontAwesomeIcon fixedWidth icon={["fas", "cubes"]} />{" "}
+              <a
+                href={pypiProjectLink}
+                target="_blank"
+                rel="noreferrer"
+                className="detail-card-meta-item-link"
+              >
+                {projectLink}
+              </a>
+            </div>
+          )}
 
           <div className="detail-card-meta-item">
-            <FontAwesomeIcon fixedWidth icon={["fas", "cubes"]} />{" "}
-            <a
-              href={pypiProjectLink}
-              target="_blank"
-              rel="noreferrer"
-              className={
-                pypiProjectLink && "hover:underline hover:text-primary"
-              }
-            >
-              {projectLink}
-            </a>
+            <FontAwesomeIcon fixedWidth icon={["fas", "clock-rotate-left"]} />{" "}
+            {updatedTime}
           </div>
+
           <div className="detail-card-actions">
             <ValidStatus
               resource={resource}

@@ -1,19 +1,18 @@
-import sys
 from pathlib import Path
+import sys
 
-import pytest
 from nonebug import App
+import pytest
 
-from nonebot.rule import Rule
 from nonebot import get_plugin
 from nonebot.matcher import Matcher, matchers
-from utils import FakeMessage, make_fake_event
-from nonebot.permission import User, Permission
 from nonebot.message import _check_matcher, check_and_run_matcher
+from nonebot.permission import Permission, User
+from nonebot.rule import Rule
+from utils import FakeMessage, make_fake_event
 
 
-@pytest.mark.asyncio
-async def test_matcher_info(app: App):
+def test_matcher_info(app: App):
     from plugins.matcher.matcher_info import matcher
 
     assert issubclass(matcher, Matcher)
@@ -29,8 +28,10 @@ async def test_matcher_info(app: App):
     assert matcher.module is sys.modules["plugins.matcher.matcher_info"]
     assert matcher.module_name == "plugins.matcher.matcher_info"
 
+    assert matcher._source.plugin_id == "matcher:matcher_info"
     assert matcher._source.plugin_name == "matcher_info"
-    assert matcher.plugin is get_plugin("matcher_info")
+    assert matcher.plugin is get_plugin("matcher:matcher_info")
+    assert matcher.plugin_id == "matcher:matcher_info"
     assert matcher.plugin_name == "matcher_info"
 
     assert (
@@ -41,7 +42,7 @@ async def test_matcher_info(app: App):
     assert matcher._source.lineno == 3
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_matcher_check(app: App):
     async def falsy():
         return False
@@ -85,7 +86,7 @@ async def test_matcher_check(app: App):
             assert await _check_matcher(test_rule_error, bot, event, {}) is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_matcher_handle(app: App):
     from plugins.matcher.matcher_process import test_handle
 
@@ -100,7 +101,7 @@ async def test_matcher_handle(app: App):
         ctx.should_finished()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_matcher_got(app: App):
     from plugins.matcher.matcher_process import test_got
 
@@ -122,7 +123,7 @@ async def test_matcher_got(app: App):
         ctx.receive_event(bot, event_next)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_matcher_receive(app: App):
     from plugins.matcher.matcher_process import test_receive
 
@@ -139,7 +140,7 @@ async def test_matcher_receive(app: App):
         ctx.should_paused()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_matcher_combine(app: App):
     from plugins.matcher.matcher_process import test_combine
 
@@ -162,7 +163,7 @@ async def test_matcher_combine(app: App):
         ctx.receive_event(bot, event_next)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_matcher_preset(app: App):
     from plugins.matcher.matcher_process import test_preset
 
@@ -180,7 +181,7 @@ async def test_matcher_preset(app: App):
         ctx.receive_event(bot, event_next)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_matcher_overload(app: App):
     from plugins.matcher.matcher_process import test_overload
 
@@ -194,7 +195,7 @@ async def test_matcher_overload(app: App):
         ctx.should_finished()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_matcher_destroy(app: App):
     from plugins.matcher.matcher_process import test_destroy
 
@@ -208,9 +209,9 @@ async def test_matcher_destroy(app: App):
         assert len(matchers[test_destroy.priority]) == 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_type_updater(app: App):
-    from plugins.matcher.matcher_type import test_type_updater, test_custom_updater
+    from plugins.matcher.matcher_type import test_custom_updater, test_type_updater
 
     event = make_fake_event()()
 
@@ -229,7 +230,7 @@ async def test_type_updater(app: App):
         assert new_type == "custom"
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_default_permission_updater(app: App):
     from plugins.matcher.matcher_permission import (
         default_permission,
@@ -250,7 +251,7 @@ async def test_default_permission_updater(app: App):
         assert checker.perm is default_permission
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_user_permission_updater(app: App):
     from plugins.matcher.matcher_permission import (
         default_permission,
@@ -272,11 +273,11 @@ async def test_user_permission_updater(app: App):
         assert checker.perm is default_permission
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_custom_permission_updater(app: App):
     from plugins.matcher.matcher_permission import (
-        new_permission,
         default_permission,
+        new_permission,
         test_custom_updater,
     )
 
@@ -289,7 +290,7 @@ async def test_custom_permission_updater(app: App):
         assert new_perm is new_permission
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_run(app: App):
     with app.provider.context({}):
         assert not matchers
@@ -320,37 +321,46 @@ async def test_run(app: App):
             assert len(matchers[0][0].handlers) == 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_temp(app: App):
     from plugins.matcher.matcher_expire import test_temp_matcher
 
     event = make_fake_event(_type="test")()
-    async with app.test_api() as ctx:
-        bot = ctx.create_bot()
-        assert test_temp_matcher in matchers[test_temp_matcher.priority]
-        await check_and_run_matcher(test_temp_matcher, bot, event, {})
-        assert test_temp_matcher not in matchers[test_temp_matcher.priority]
+    with app.provider.context({test_temp_matcher.priority: [test_temp_matcher]}):
+        async with app.test_api() as ctx:
+            bot = ctx.create_bot()
+            assert test_temp_matcher in matchers[test_temp_matcher.priority]
+            await check_and_run_matcher(test_temp_matcher, bot, event, {})
+            assert test_temp_matcher not in matchers[test_temp_matcher.priority]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_datetime_expire(app: App):
     from plugins.matcher.matcher_expire import test_datetime_matcher
 
     event = make_fake_event()()
-    async with app.test_api() as ctx:
-        bot = ctx.create_bot()
-        assert test_datetime_matcher in matchers[test_datetime_matcher.priority]
-        await check_and_run_matcher(test_datetime_matcher, bot, event, {})
-        assert test_datetime_matcher not in matchers[test_datetime_matcher.priority]
+    with app.provider.context(
+        {test_datetime_matcher.priority: [test_datetime_matcher]}
+    ):
+        async with app.test_matcher(test_datetime_matcher) as ctx:
+            bot = ctx.create_bot()
+            assert test_datetime_matcher in matchers[test_datetime_matcher.priority]
+            await check_and_run_matcher(test_datetime_matcher, bot, event, {})
+            assert test_datetime_matcher not in matchers[test_datetime_matcher.priority]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_timedelta_expire(app: App):
     from plugins.matcher.matcher_expire import test_timedelta_matcher
 
     event = make_fake_event()()
-    async with app.test_api() as ctx:
-        bot = ctx.create_bot()
-        assert test_timedelta_matcher in matchers[test_timedelta_matcher.priority]
-        await check_and_run_matcher(test_timedelta_matcher, bot, event, {})
-        assert test_timedelta_matcher not in matchers[test_timedelta_matcher.priority]
+    with app.provider.context(
+        {test_timedelta_matcher.priority: [test_timedelta_matcher]}
+    ):
+        async with app.test_api() as ctx:
+            bot = ctx.create_bot()
+            assert test_timedelta_matcher in matchers[test_timedelta_matcher.priority]
+            await check_and_run_matcher(test_timedelta_matcher, bot, event, {})
+            assert (
+                test_timedelta_matcher not in matchers[test_timedelta_matcher.priority]
+            )

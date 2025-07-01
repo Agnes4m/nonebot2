@@ -1,22 +1,32 @@
 """本模块模块实现了依赖注入的定义与处理。
 
 FrontMatter:
+    mdx:
+        format: md
     sidebar_position: 0
     description: nonebot.dependencies 模块
 """
 
 import abc
-import asyncio
+from collections.abc import Awaitable, Iterable
+from dataclasses import dataclass, field
+from functools import partial
 import inspect
-from dataclasses import field, dataclass
-from collections.abc import Iterable, Awaitable
-from typing import Any, Generic, TypeVar, Callable, Optional, cast
+from typing import Any, Callable, Generic, Optional, TypeVar, cast
 
+import anyio
+from exceptiongroup import BaseExceptionGroup, catch
+
+from nonebot.compat import FieldInfo, ModelField, PydanticUndefined
+from nonebot.exception import SkippedException
 from nonebot.log import logger
 from nonebot.typing import _DependentCallable
-from nonebot.exception import SkippedException
-from nonebot.utils import run_sync, is_coroutine_callable
-from nonebot.compat import FieldInfo, ModelField, PydanticUndefined
+from nonebot.utils import (
+    flatten_exception_group,
+    is_coroutine_callable,
+    run_coro_with_shield,
+    run_sync,
+)
 
 from .utils import check_field_type, get_typed_signature
 
@@ -82,7 +92,16 @@ class Dependent(Generic[R]):
         )
 
     async def __call__(self, **kwargs: Any) -> R:
-        try:
+        exception: Optional[BaseExceptionGroup[SkippedException]] = None
+
+        def _handle_skipped(exc_group: BaseExceptionGroup[SkippedException]):
+            nonlocal exception
+            exception = exc_group
+            # raise one of the exceptions instead
+            excs = list(flatten_exception_group(exc_group))
+            logger.trace(f"{self} skipped due to {excs}")
+
+        with catch({SkippedException: _handle_skipped}):
             # do pre-check
             await self.check(**kwargs)
 
@@ -94,9 +113,8 @@ class Dependent(Generic[R]):
                 return await cast(Callable[..., Awaitable[R]], self.call)(**values)
             else:
                 return await run_sync(cast(Callable[..., R], self.call))(**values)
-        except SkippedException as e:
-            logger.trace(f"{self} skipped due to {e}")
-            raise
+
+        raise exception
 
     @staticmethod
     def parse_params(
@@ -164,10 +182,17 @@ class Dependent(Generic[R]):
         return cls(call, params, parameterless_params)
 
     async def check(self, **params: Any) -> None:
-        await asyncio.gather(*(param._check(**params) for param in self.parameterless))
-        await asyncio.gather(
-            *(cast(Param, param.field_info)._check(**params) for param in self.params)
-        )
+        if self.parameterless:
+            async with anyio.create_task_group() as tg:
+                for param in self.parameterless:
+                    tg.start_soon(partial(param._check, **params))
+
+        if self.params:
+            async with anyio.create_task_group() as tg:
+                for param in self.params:
+                    tg.start_soon(
+                        partial(cast(Param, param.field_info)._check, **params)
+                    )
 
     async def _solve_field(self, field: ModelField, params: dict[str, Any]) -> Any:
         param = cast(Param, field.field_info)
@@ -183,10 +208,22 @@ class Dependent(Generic[R]):
             await param._solve(**params)
 
         # solve param values
-        values = await asyncio.gather(
-            *(self._solve_field(field, params) for field in self.params)
-        )
-        return {field.name: value for field, value in zip(self.params, values)}
+        result: dict[str, Any] = {}
+        if not self.params:
+            return result
+
+        async def _solve_field(field: ModelField, params: dict[str, Any]) -> None:
+            value = await self._solve_field(field, params)
+            result[field.name] = value
+
+        async with anyio.create_task_group() as tg:
+            for field in self.params:
+                # shield the task to prevent cancellation
+                # when one of the tasks raises an exception
+                # this will improve the dependency cache reusability
+                tg.start_soon(run_coro_with_shield, _solve_field(field, params))
+
+        return result
 
 
 __autodoc__ = {"CustomConfig": False}

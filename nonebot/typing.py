@@ -6,23 +6,23 @@
 [`typing`](https://docs.python.org/3/library/typing.html)。
 
 FrontMatter:
+    mdx:
+        format: md
     sidebar_position: 11
     description: nonebot.typing 模块
 """
 
 import sys
 import types
-import warnings
-import contextlib
 import typing as t
-import typing_extensions as t_ext
 from typing import TYPE_CHECKING, TypeVar
-from typing_extensions import ParamSpec, TypeAlias, get_args, override, get_origin
+import typing_extensions as t_ext
+from typing_extensions import ParamSpec, TypeAlias, get_args, get_origin, override
+import warnings
 
 if TYPE_CHECKING:
-    from asyncio import Task
-
     from nonebot.adapters import Bot
+    from nonebot.internal.params import DependencyCache
     from nonebot.permission import Permission
 
 T = TypeVar("T")
@@ -86,9 +86,7 @@ def all_literal_values(type_: type[t.Any]) -> list[t.Any]:
 
 def origin_is_annotated(origin: t.Optional[type[t.Any]]) -> bool:
     """判断是否是 Annotated 类型"""
-    with contextlib.suppress(TypeError):
-        return origin is not None and issubclass(origin, t_ext.Annotated)
-    return False
+    return origin is t_ext.Annotated
 
 
 NONE_TYPES = {None, type(None), t.Literal[None], t_ext.Literal[None]}
@@ -104,11 +102,23 @@ def is_none_type(type_: type[t.Any]) -> bool:
 def evaluate_forwardref(
     ref: t.ForwardRef, globalns: dict[str, t.Any], localns: dict[str, t.Any]
 ) -> t.Any:
-    return ref._evaluate(globalns, localns, frozenset())
+    # Python 3.13/3.12.4+ made `recursive_guard` a kwarg,
+    # so name it explicitly to avoid:
+    # TypeError: ForwardRef._evaluate()
+    # missing 1 required keyword-only argument: 'recursive_guard'
+    return ref._evaluate(globalns, localns, recursive_guard=frozenset())
 
 
 # state
-T_State: TypeAlias = dict[t.Any, t.Any]
+# use annotated flag to avoid ForwardRef recreate generic type (py >= 3.11)
+class StateFlag:
+    def __repr__(self) -> str:
+        return "StateFlag()"
+
+
+_STATE_FLAG = StateFlag()
+
+T_State: TypeAlias = t.Annotated[dict[t.Any, t.Any], _STATE_FLAG]
 """事件处理状态 State 类型"""
 
 _DependentCallable: TypeAlias = t.Union[
@@ -247,5 +257,5 @@ T_PermissionUpdater: TypeAlias = _DependentCallable["Permission"]
 - MatcherParam: Matcher 对象
 - DefaultParam: 带有默认值的参数
 """
-T_DependencyCache: TypeAlias = dict[_DependentCallable[t.Any], "Task[t.Any]"]
+T_DependencyCache: TypeAlias = dict[_DependentCallable[t.Any], "DependencyCache"]
 """依赖缓存, 用于存储依赖函数的返回值"""

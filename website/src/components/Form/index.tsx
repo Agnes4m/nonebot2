@@ -4,10 +4,12 @@ import clsx from "clsx";
 
 import "./styles.css";
 
+import type { Resource } from "@/libs/store";
+import { fetchRegistryData } from "@/libs/store";
+
 import TagFormItem from "./Items/Tag";
 
-import { fetchRegistryData, Resource } from "@/libs/store";
-import { Tag as TagType } from "@/types/tag";
+import type { Tag as TagType } from "@/types/tag";
 
 export type FormItemData = {
   type: string;
@@ -22,6 +24,7 @@ export type FormItemGroup = {
 
 export type Props = {
   children?: React.ReactNode;
+  description?: React.ReactNode;
   type: Resource["resourceType"];
   formItems: FormItemGroup[];
   handleSubmit: (result: Record<string, string>) => void;
@@ -30,9 +33,10 @@ export type Props = {
 export function Form({
   type,
   children,
+  description,
   formItems,
   handleSubmit,
-}: Props): JSX.Element {
+}: Props): React.ReactNode {
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [result, setResult] = useState<Record<string, string>>({});
   const [allowTags, setAllowTags] = useState<TagType[]>([]);
@@ -61,9 +65,9 @@ export function Form({
     const currentStepNames = formItems[currentStep].items.map(
       (item) => item.name
     );
-    if (currentStepNames.every((name) => result[name]))
+    if (currentStepNames.every((name) => result[name])) {
       setCurrentStep(currentStep + 1);
-    else return;
+    }
   };
   const onPrev = () => currentStep > 0 && setCurrentStep(currentStep - 1);
   const onNext = () =>
@@ -83,6 +87,9 @@ export function Form({
           </li>
         ))}
       </ul>
+      {description && currentStep === 0 && (
+        <div className="form-description">{description}</div>
+      )}
       <div className="form-control w-full min-h-[300px]">
         {children ||
           formItems[currentStep].items.map((item) => (
@@ -125,7 +132,7 @@ export function FormItem({
   allowTags: TagType[];
   result: Record<string, string>;
   setResult: (key: string, value: string) => void;
-}): JSX.Element {
+}): React.ReactNode {
   return (
     <>
       <label className="label">

@@ -3,23 +3,29 @@
 为兼容 Pydantic V1 与 V2 版本，定义了一系列兼容函数与类供使用。
 
 FrontMatter:
+    mdx:
+        format: md
     sidebar_position: 16
     description: nonebot.compat 模块
 """
 
 from collections.abc import Generator
 from dataclasses import dataclass, is_dataclass
-from typing_extensions import Self, get_args, get_origin, is_typeddict
+from functools import cached_property
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
-    Union,
-    TypeVar,
     Callable,
+    Generic,
+    Literal,
     Optional,
     Protocol,
-    Annotated,
+    TypeVar,
+    Union,
+    overload,
 )
+from typing_extensions import Self, get_args, get_origin, is_typeddict
 
 from pydantic import VERSION, BaseModel
 
@@ -39,21 +45,24 @@ if TYPE_CHECKING:
 
 
 __all__ = (
-    "Required",
-    "PydanticUndefined",
-    "PydanticUndefinedType",
-    "ConfigDict",
     "DEFAULT_CONFIG",
+    "PYDANTIC_V2",
+    "ConfigDict",
     "FieldInfo",
     "ModelField",
+    "PydanticUndefined",
+    "PydanticUndefinedType",
+    "Required",
+    "TypeAdapter",
+    "custom_validation",
     "extract_field_info",
-    "model_field_validate",
-    "model_fields",
+    "field_validator",
     "model_config",
     "model_dump",
-    "type_validate_python",
+    "model_fields",
+    "model_validator",
     "type_validate_json",
-    "custom_validation",
+    "type_validate_python",
 )
 
 __autodoc__ = {
@@ -63,10 +72,13 @@ __autodoc__ = {
 
 
 if PYDANTIC_V2:  # pragma: pydantic-v2
-    from pydantic_core import CoreSchema, core_schema
+    from pydantic import GetCoreSchemaHandler
+    from pydantic import TypeAdapter as TypeAdapter
+    from pydantic import field_validator as field_validator
+    from pydantic import model_validator as model_validator
     from pydantic._internal._repr import display_as_type
-    from pydantic import TypeAdapter, GetCoreSchemaHandler
     from pydantic.fields import FieldInfo as BaseFieldInfo
+    from pydantic_core import CoreSchema, core_schema
 
     Required = Ellipsis
     """Alias of Ellipsis for compatibility with pydantic v1"""
@@ -125,6 +137,25 @@ if PYDANTIC_V2:  # pragma: pydantic-v2
             """Construct a ModelField from given infos."""
             return cls._construct(name, annotation, field_info or FieldInfo())
 
+        def __hash__(self) -> int:
+            # Each ModelField is unique for our purposes,
+            # to allow store them in a set.
+            return id(self)
+
+        @cached_property
+        def type_adapter(self) -> TypeAdapter:
+            """TypeAdapter of the field.
+
+            Cache the TypeAdapter to avoid creating it multiple times.
+            Pydantic v2 uses too much cpu time to create TypeAdapter.
+
+            See: https://github.com/pydantic/pydantic/issues/9834
+            """
+            return TypeAdapter(
+                Annotated[self.annotation, self.field_info],
+                config=None if self._annotation_has_config() else DEFAULT_CONFIG,
+            )
+
         def _annotation_has_config(self) -> bool:
             """Check if the annotation has config.
 
@@ -152,10 +183,9 @@ if PYDANTIC_V2:  # pragma: pydantic-v2
             """Get the display of the type of the field."""
             return display_as_type(self.annotation)
 
-        def __hash__(self) -> int:
-            # Each ModelField is unique for our purposes,
-            # to allow store them in a set.
-            return id(self)
+        def validate_value(self, value: Any) -> Any:
+            """Validate the value pass to the field."""
+            return self.type_adapter.validate_python(value)
 
     def extract_field_info(field_info: BaseFieldInfo) -> dict[str, Any]:
         """Get FieldInfo init kwargs from a FieldInfo instance."""
@@ -163,15 +193,6 @@ if PYDANTIC_V2:  # pragma: pydantic-v2
         kwargs = field_info._attributes_set.copy()
         kwargs["annotation"] = field_info.rebuild_annotation()
         return kwargs
-
-    def model_field_validate(
-        model_field: ModelField, value: Any, config: Optional[ConfigDict] = None
-    ) -> Any:
-        """Validate the value pass to the field."""
-        type: Any = Annotated[model_field.annotation, model_field.field_info]
-        return TypeAdapter(
-            type, config=None if model_field._annotation_has_config() else config
-        ).validate_python(value)
 
     def model_fields(model: type[BaseModel]) -> list[ModelField]:
         """Get field list of a model."""
@@ -238,9 +259,8 @@ if PYDANTIC_V2:  # pragma: pydantic-v2
         return class_
 
 else:  # pragma: pydantic-v1
-    from pydantic import Extra
-    from pydantic import parse_obj_as, parse_raw_as
     from pydantic import BaseConfig as PydanticConfig
+    from pydantic import Extra, parse_obj_as, parse_raw_as, root_validator, validator
     from pydantic.fields import FieldInfo as BaseFieldInfo
     from pydantic.fields import ModelField as BaseModelField
     from pydantic.schema import get_annotation_from_field_info
@@ -305,6 +325,45 @@ else:  # pragma: pydantic-v1
                 )
             return cls._construct(name, annotation, field_info or FieldInfo())
 
+        def validate_value(self, value: Any) -> Any:
+            """Validate the value pass to the field."""
+            v, errs_ = self.validate(value, {}, loc=())
+            if errs_:
+                raise ValueError(value, self)
+            return v
+
+    class TypeAdapter(Generic[T]):
+        @overload
+        def __init__(
+            self,
+            type: type[T],
+            *,
+            config: Optional[ConfigDict] = ...,
+        ) -> None: ...
+
+        @overload
+        def __init__(
+            self,
+            type: Any,
+            *,
+            config: Optional[ConfigDict] = ...,
+        ) -> None: ...
+
+        def __init__(
+            self,
+            type: Any,
+            *,
+            config: Optional[ConfigDict] = None,
+        ) -> None:
+            self.type = type
+            self.config = config
+
+        def validate_python(self, value: Any) -> T:
+            return type_validate_python(self.type, value)
+
+        def validate_json(self, value: Union[str, bytes]) -> T:
+            return type_validate_json(self.type, value)
+
     def extract_field_info(field_info: BaseFieldInfo) -> dict[str, Any]:
         """Get FieldInfo init kwargs from a FieldInfo instance."""
 
@@ -314,21 +373,43 @@ else:  # pragma: pydantic-v1
         kwargs.update(field_info.extra)
         return kwargs
 
-    def model_field_validate(
-        model_field: ModelField, value: Any, config: Optional[type[ConfigDict]] = None
-    ) -> Any:
-        """Validate the value pass to the field.
+    @overload
+    def field_validator(
+        field: str,
+        /,
+        *fields: str,
+        mode: Literal["before"],
+        check_fields: Optional[bool] = None,
+    ): ...
 
-        Set config before validate to ensure validate correctly.
-        """
+    @overload
+    def field_validator(
+        field: str,
+        /,
+        *fields: str,
+        mode: Literal["after"] = ...,
+        check_fields: Optional[bool] = None,
+    ): ...
 
-        if model_field.model_config is not config:
-            model_field.set_config(config or ConfigDict)
-
-        v, errs_ = model_field.validate(value, {}, loc=())
-        if errs_:
-            raise ValueError(value, model_field)
-        return v
+    def field_validator(
+        field: str,
+        /,
+        *fields: str,
+        mode: Literal["before", "after"] = "after",
+        check_fields: Optional[bool] = None,
+    ):
+        if mode == "before":
+            return validator(
+                field,
+                *fields,
+                pre=True,
+                check_fields=check_fields or True,
+                allow_reuse=True,
+            )
+        else:
+            return validator(
+                field, *fields, check_fields=check_fields or True, allow_reuse=True
+            )
 
     def model_fields(model: type[BaseModel]) -> list[ModelField]:
         """Get field list of a model."""
@@ -366,6 +447,18 @@ else:  # pragma: pydantic-v1
             exclude_defaults=exclude_defaults,
             exclude_none=exclude_none,
         )
+
+    @overload
+    def model_validator(*, mode: Literal["before"]): ...
+
+    @overload
+    def model_validator(*, mode: Literal["after"]): ...
+
+    def model_validator(*, mode: Literal["before", "after"]):
+        if mode == "before":
+            return root_validator(pre=True, allow_reuse=True)
+        else:
+            return root_validator(skip_on_failure=True, allow_reuse=True)
 
     def type_validate_python(type_: type[T], data: Any) -> T:
         """Validate data with given type."""

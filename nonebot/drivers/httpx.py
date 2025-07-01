@@ -11,26 +11,28 @@ pip install nonebot2[httpx]
 :::
 
 FrontMatter:
+    mdx:
+        format: md
     sidebar_position: 3
     description: nonebot.drivers.httpx 模块
 """
 
+from typing import TYPE_CHECKING, Optional, Union
 from typing_extensions import override
-from typing import TYPE_CHECKING, Union, Optional
 
 from multidict import CIMultiDict
 
-from nonebot.drivers.none import Driver as NoneDriver
-from nonebot.internal.driver import Cookies, QueryTypes, CookieTypes, HeaderTypes
 from nonebot.drivers import (
     URL,
-    Request,
-    Response,
-    HTTPVersion,
     HTTPClientMixin,
     HTTPClientSession,
+    HTTPVersion,
+    Request,
+    Response,
     combine_driver,
 )
+from nonebot.drivers.none import Driver as NoneDriver
+from nonebot.internal.driver import Cookies, CookieTypes, HeaderTypes, QueryTypes
 
 try:
     import httpx
@@ -80,6 +82,8 @@ class Session(HTTPClientSession):
             data=setup.data,
             files=setup.files,
             json=setup.json,
+            # ensure the params priority
+            params=setup.url.raw_query_string,
             headers=tuple(setup.headers.items()),
             cookies=setup.cookies.jar,
             timeout=setup.timeout,
@@ -100,7 +104,7 @@ class Session(HTTPClientSession):
             headers=self._headers,
             cookies=self._cookies.jar,
             http2=self._version == HTTPVersion.H2,
-            proxies=self._proxy,
+            proxy=self._proxy,
             follow_redirects=True,
         )
         await self._client.__aenter__()

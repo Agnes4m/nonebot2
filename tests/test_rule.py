@@ -1,55 +1,55 @@
 import re
 from re import Match
-from typing import Union, Optional
+from typing import Optional, Union
 
-import pytest
 from nonebug import App
+import pytest
 
-from nonebot.typing import T_State
-from nonebot.exception import ParserExit, SkippedException
-from utils import FakeMessage, FakeMessageSegment, make_fake_event
 from nonebot.consts import (
-    CMD_KEY,
-    PREFIX_KEY,
-    SHELL_ARGS,
-    SHELL_ARGV,
     CMD_ARG_KEY,
-    KEYWORD_KEY,
+    CMD_KEY,
+    CMD_WHITESPACE_KEY,
     ENDSWITH_KEY,
     FULLMATCH_KEY,
+    KEYWORD_KEY,
+    PREFIX_KEY,
     REGEX_MATCHED,
+    SHELL_ARGS,
+    SHELL_ARGV,
     STARTSWITH_KEY,
-    CMD_WHITESPACE_KEY,
 )
+from nonebot.exception import ParserExit, SkippedException
 from nonebot.rule import (
     CMD_RESULT,
     TRIE_VALUE,
-    Rule,
-    ToMeRule,
-    TrieRule,
-    Namespace,
-    RegexRule,
-    IsTypeRule,
+    ArgumentParser,
     CommandRule,
     EndswithRule,
-    KeywordsRule,
     FullmatchRule,
-    ArgumentParser,
-    StartswithRule,
+    IsTypeRule,
+    KeywordsRule,
+    Namespace,
+    RegexRule,
+    Rule,
     ShellCommandRule,
-    regex,
-    to_me,
+    StartswithRule,
+    ToMeRule,
+    TrieRule,
     command,
-    is_type,
-    keyword,
     endswith,
     fullmatch,
-    startswith,
+    is_type,
+    keyword,
+    regex,
     shell_command,
+    startswith,
+    to_me,
 )
+from nonebot.typing import T_State
+from utils import FakeMessage, FakeMessageSegment, make_fake_event
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_rule(app: App):
     async def falsy():
         return False
@@ -81,7 +81,7 @@ async def test_rule(app: App):
         assert await Rule(truthy, skipped)(bot, event, {}) is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_trie(app: App):
     TrieRule.add_prefix("/fake-prefix", TRIE_VALUE("/", ("fake-prefix",)))
 
@@ -146,7 +146,7 @@ async def test_trie(app: App):
     del TrieRule.prefix["/fake-prefix"]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("msg", "ignorecase", "type", "text", "expected"),
     [
@@ -186,7 +186,7 @@ async def test_startswith(
         assert await dependent(event=event, state=state) == expected
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("msg", "ignorecase", "type", "text", "expected"),
     [
@@ -226,7 +226,7 @@ async def test_endswith(
         assert await dependent(event=event, state=state) == expected
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("msg", "ignorecase", "type", "text", "expected"),
     [
@@ -266,7 +266,7 @@ async def test_fullmatch(
         assert await dependent(event=event, state=state) == expected
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("kws", "type", "text", "expected"),
     [
@@ -298,7 +298,7 @@ async def test_keyword(
         assert await dependent(event=event, state=state) == expected
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("cmds", "force_whitespace", "cmd", "whitespace", "arg_text", "expected"),
     [
@@ -344,7 +344,7 @@ async def test_command(
     assert await dependent(state=state) == expected
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_shell_command():
     state: T_State
     CMD = ("test",)
@@ -371,8 +371,30 @@ async def test_shell_command():
     assert state[SHELL_ARGV] == []
     assert SHELL_ARGS not in state
 
+    test_lexical_error = shell_command(CMD)
+    dependent = next(iter(test_lexical_error.checkers))
+    checker = dependent.call
+    assert isinstance(checker, ShellCommandRule)
+    message = Message("-a '1")
+    event = make_fake_event(_message=message)()
+    state = {PREFIX_KEY: {CMD_KEY: CMD, CMD_ARG_KEY: message}}
+    assert await dependent(event=event, state=state)
+    assert state[SHELL_ARGV] is None
+
     parser = ArgumentParser("test")
     parser.add_argument("-a", required=True)
+
+    test_lexical_error_with_parser = shell_command(CMD, parser=ArgumentParser("test"))
+    dependent = next(iter(test_lexical_error_with_parser.checkers))
+    checker = dependent.call
+    assert isinstance(checker, ShellCommandRule)
+    message = Message("-a '1")
+    event = make_fake_event(_message=message)()
+    state = {PREFIX_KEY: {CMD_KEY: CMD, CMD_ARG_KEY: message}}
+    assert await dependent(event=event, state=state)
+    assert state[SHELL_ARGV] is None
+    assert isinstance(state[SHELL_ARGS], ParserExit)
+    assert state[SHELL_ARGS].status != 0
 
     test_simple_parser = shell_command(CMD, parser=parser)
     dependent = next(iter(test_simple_parser.checkers))
@@ -451,7 +473,7 @@ async def test_shell_command():
     assert state[SHELL_ARGS].status != 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("pattern", "type", "text", "expected", "matched"),
     [
@@ -494,7 +516,7 @@ async def test_regex(
         assert result.span() == matched.span()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 @pytest.mark.parametrize("expected", [True, False])
 async def test_to_me(expected: bool):
     test_to_me = to_me()
@@ -507,7 +529,7 @@ async def test_to_me(expected: bool):
     assert await dependent(event=event) == expected
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_is_type():
     Event1 = make_fake_event()
     Event2 = make_fake_event()

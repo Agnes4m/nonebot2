@@ -1,14 +1,16 @@
 import React from "react";
 
-import "asciinema-player/dist/bundle/asciinema-player.css";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 
-import "./styles.css";
+import "asciinema-player/dist/bundle/asciinema-player.css";
+
 import type { Props } from "./container";
+
+import "./styles.css";
 
 export type { Props } from "./container";
 
-export default function Asciinema(props: Props): JSX.Element {
+export default function Asciinema(props: Props): React.ReactNode {
   return (
     <BrowserOnly
       fallback={

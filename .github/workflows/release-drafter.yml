@@ -32,7 +32,7 @@ jobs:
       - name: Setup Node Environment
         uses: ./.github/actions/setup-node
 
-      - uses: release-drafter/release-drafter@v6
+      - uses: release-drafter/release-drafter@v6.0.0
         id: release-drafter
         env:
           GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
@@ -40,7 +40,7 @@ jobs:
       - name: Update Changelog
         uses: docker://ghcr.io/nonebot/auto-changelog:master
         with:
-          changelog_file: website/src/pages/changelog.md
+          changelog_file: website/src/changelog/changelog.md
           latest_changes_position: '# 更新日志\n\n'
           latest_changes_title: "## 最近更新"
           replace_regex: '(?<=## 最近更新\n)[\s\S]*?(?=\n## )'
@@ -92,7 +92,7 @@ jobs:
         if: steps.version.outputs.VERSION != steps.version.outputs.TAG_VERSION
         run: exit 1
 
-      - uses: release-drafter/release-drafter@v6
+      - uses: release-drafter/release-drafter@v6.0.0
         with:
           name: Release ${{ steps.version.outputs.TAG_NAME }} 🌈
           tag: ${{ steps.version.outputs.TAG_NAME }}

@@ -1,29 +1,30 @@
-from typing import Any, Optional
 from dataclasses import dataclass
+from typing import Annotated, Any, Optional
 
+from pydantic import BaseModel, ValidationError
 import pytest
-from pydantic import BaseModel
 
 from nonebot.compat import (
     DEFAULT_CONFIG,
-    Required,
     FieldInfo,
     PydanticUndefined,
-    model_dump,
+    Required,
+    TypeAdapter,
     custom_validation,
+    field_validator,
+    model_dump,
+    model_validator,
     type_validate_json,
     type_validate_python,
 )
 
 
-@pytest.mark.asyncio
-async def test_default_config():
+def test_default_config():
     assert DEFAULT_CONFIG.get("extra") == "allow"
     assert DEFAULT_CONFIG.get("arbitrary_types_allowed") is True
 
 
-@pytest.mark.asyncio
-async def test_field_info():
+def test_field_info():
     # required should be convert to PydanticUndefined
     assert FieldInfo(Required).default is PydanticUndefined
 
@@ -31,8 +32,47 @@ async def test_field_info():
     assert FieldInfo(test="test").extra["test"] == "test"
 
 
-@pytest.mark.asyncio
-async def test_model_dump():
+def test_field_validator():
+    class TestModel(BaseModel):
+        foo: int
+        bar: str
+
+        @field_validator("foo")
+        @classmethod
+        def test_validator(cls, v: Any) -> Any:
+            if v > 0:
+                return v
+            raise ValueError("test must be greater than 0")
+
+        @field_validator("bar", mode="before")
+        @classmethod
+        def test_validator_before(cls, v: Any) -> Any:
+            if not isinstance(v, str):
+                v = str(v)
+            return v
+
+    assert type_validate_python(TestModel, {"foo": 1, "bar": "test"}).foo == 1
+    assert type_validate_python(TestModel, {"foo": 1, "bar": 123}).bar == "123"
+
+    with pytest.raises(ValidationError):
+        TestModel(foo=0, bar="test")
+
+
+def test_type_adapter():
+    t = TypeAdapter(Annotated[int, FieldInfo(ge=1)])
+
+    assert t.validate_python(2) == 2
+
+    with pytest.raises(ValidationError):
+        t.validate_python(0)
+
+    assert t.validate_json("2") == 2
+
+    with pytest.raises(ValidationError):
+        t.validate_json("0")
+
+
+def test_model_dump():
     class TestModel(BaseModel):
         test1: int
         test2: int
@@ -41,8 +81,36 @@ async def test_model_dump():
     assert model_dump(TestModel(test1=1, test2=2), exclude={"test1"}) == {"test2": 2}
 
 
-@pytest.mark.asyncio
-async def test_custom_validation():
+def test_model_validator():
+    class TestModel(BaseModel):
+        foo: int
+        bar: str
+
+        @model_validator(mode="before")
+        @classmethod
+        def test_validator_before(cls, data: Any) -> Any:
+            if isinstance(data, dict):
+                if "foo" not in data:
+                    data["foo"] = 1
+            return data
+
+        @model_validator(mode="after")
+        @classmethod
+        def test_validator_after(cls, data: Any) -> Any:
+            if isinstance(data, dict):
+                if data["bar"] == "test":
+                    raise ValueError("bar should not be test")
+            elif data.bar == "test":
+                raise ValueError("bar should not be test")
+            return data
+
+    assert type_validate_python(TestModel, {"bar": "aaa"}).foo == 1
+
+    with pytest.raises(ValidationError):
+        type_validate_python(TestModel, {"foo": 1, "bar": "test"})
+
+
+def test_custom_validation():
     called = []
 
     @custom_validation
@@ -69,8 +137,7 @@ async def test_custom_validation():
     assert called == [1, 2]
 
 
-@pytest.mark.asyncio
-async def test_validate_json():
+def test_validate_json():
     class TestModel(BaseModel):
         test1: int
         test2: str

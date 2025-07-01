@@ -1,7 +1,7 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from nonebot.adapters import Message
-from nonebot.params import Arg, ArgStr, ArgPlainText
+from nonebot.params import Arg, ArgPlainText, ArgPromptResult, ArgStr
 
 
 async def arg(key: Message = Arg()) -> Message:
@@ -28,12 +28,16 @@ async def annotated_arg_plain_text(key: Annotated[str, ArgPlainText()]) -> str:
     return key
 
 
+async def annotated_arg_prompt_result(key: Annotated[Any, ArgPromptResult()]) -> Any:
+    return key
+
+
 # test dependency priority
 async def annotated_prior_arg(key: Annotated[str, ArgStr("foo")] = ArgPlainText()):
     return key
 
 
 async def annotated_multi_arg(
-    key: Annotated[Annotated[str, ArgStr("foo")], ArgPlainText()]
+    key: Annotated[Annotated[str, ArgStr("foo")], ArgPlainText()],
 ):
     return key

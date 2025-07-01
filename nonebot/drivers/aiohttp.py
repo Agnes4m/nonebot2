@@ -11,29 +11,33 @@ pip install nonebot2[aiohttp]
 :::
 
 FrontMatter:
+    mdx:
+        format: md
     sidebar_position: 2
     description: nonebot.drivers.aiohttp 模块
 """
 
-from typing_extensions import override
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Union, Optional
+from typing import TYPE_CHECKING, Optional, Union
+from typing_extensions import override
 
 from multidict import CIMultiDict
 
-from nonebot.exception import WebSocketClosed
-from nonebot.drivers import URL, Request, Response
-from nonebot.drivers.none import Driver as NoneDriver
-from nonebot.drivers import WebSocket as BaseWebSocket
-from nonebot.internal.driver import Cookies, QueryTypes, CookieTypes, HeaderTypes
 from nonebot.drivers import (
-    HTTPVersion,
+    URL,
     HTTPClientMixin,
     HTTPClientSession,
+    HTTPVersion,
+    Request,
+    Response,
     WebSocketClientMixin,
     combine_driver,
 )
+from nonebot.drivers import WebSocket as BaseWebSocket
+from nonebot.drivers.none import Driver as NoneDriver
+from nonebot.exception import WebSocketClosed
+from nonebot.internal.driver import Cookies, CookieTypes, HeaderTypes, QueryTypes
 
 try:
     import aiohttp
@@ -86,9 +90,7 @@ class Session(HTTPClientSession):
     @override
     async def request(self, setup: Request) -> Response:
         if self._params:
-            params = self._params.copy()
-            params.update(setup.url.query)
-            url = setup.url.with_query(params)
+            url = setup.url.with_query({**self._params, **setup.url.query})
         else:
             url = setup.url
 
@@ -168,11 +170,13 @@ class Mixin(HTTPClientMixin, WebSocketClientMixin):
         else:
             raise RuntimeError(f"Unsupported HTTP version: {setup.version}")
 
+        timeout = aiohttp.ClientWSTimeout(ws_close=setup.timeout or 10.0)  # type: ignore
+
         async with aiohttp.ClientSession(version=version, trust_env=True) as session:
             async with session.ws_connect(
                 setup.url,
                 method=setup.method,
-                timeout=setup.timeout or 10,
+                timeout=timeout,
                 headers=setup.headers,
                 proxy=setup.proxy,
             ) as ws:

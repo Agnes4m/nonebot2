@@ -10,7 +10,7 @@ import copy from "copy-text-to-clipboard";
 import IconCopy from "@theme/Icon/Copy";
 import IconSuccess from "@theme/Icon/Success";
 
-function HomeHeroInstallButton(): JSX.Element {
+function HomeHeroInstallButton(): React.ReactNode {
   const code = "pipx run nb-cli create";
 
   const [isCopied, setIsCopied] = useState(false);
@@ -37,7 +37,7 @@ function HomeHeroInstallButton(): JSX.Element {
   );
 }
 
-function HomeHero(): JSX.Element {
+function HomeHero(): React.ReactNode {
   const {
     siteConfig: { tagline },
   } = useDocusaurusContext();
@@ -47,6 +47,7 @@ function HomeHero(): JSX.Element {
 
   return (
     <div className="home-hero">
+      <img src="/img/uwu.svg" alt="uwu" className="home-hero-uwu" />
       <img src={logo!.src} alt={logo!.alt} className="home-hero-logo" />
       <h1 className="home-hero-title">
         <span className="text-primary">None</span>

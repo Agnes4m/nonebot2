@@ -2,20 +2,18 @@
   "name": "Default Linux Universal",
   "image": "mcr.microsoft.com/devcontainers/universal:2-linux",
   "features": {
-    "ghcr.io/devcontainers-contrib/features/poetry:2": {}
+    "ghcr.io/devcontainers-extra/features/poetry:2": {}
   },
   "postCreateCommand": "./scripts/setup-envs.sh",
   "customizations": {
     "vscode": {
       "settings": {
         "python.analysis.diagnosticMode": "workspace",
-        "python.analysis.typeCheckingMode": "basic",
-        "ruff.organizeImports": false,
         "[python]": {
-          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.defaultFormatter": "charliermarsh.ruff",
           "editor.codeActionsOnSave": {
-            "source.fixAll.ruff": true,
-            "source.organizeImports": true
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports": "explicit"
           }
         },
         "[javascript]": {
@@ -44,8 +42,6 @@
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "ms-python.isort",
-        "ms-python.black-formatter",
         "charliermarsh.ruff",
         "EditorConfig.EditorConfig",
         "esbenp.prettier-vscode",

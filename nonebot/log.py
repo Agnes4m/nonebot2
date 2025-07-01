@@ -8,13 +8,15 @@ NoneBot 使用 [`loguru`][loguru] 来记录日志信息。
 [loguru]: https://github.com/Delgan/loguru
 
 FrontMatter:
+    mdx:
+        format: md
     sidebar_position: 7
     description: nonebot.log 模块
 """
 
-import sys
 import inspect
 import logging
+import sys
 from typing import TYPE_CHECKING
 
 import loguru

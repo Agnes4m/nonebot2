@@ -1,32 +1,46 @@
-import sys
-import inspect
-import warnings
-from pathlib import Path
-from types import ModuleType
-from dataclasses import dataclass
-from contextvars import ContextVar
-from typing_extensions import Self
 from collections.abc import Iterable
-from datetime import datetime, timedelta
 from contextlib import AsyncExitStack, contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+import inspect
+from pathlib import Path
+import sys
+from types import ModuleType
 from typing import (  # noqa: UP035
     TYPE_CHECKING,
     Any,
-    Type,
-    Union,
-    TypeVar,
     Callable,
     ClassVar,
     NoReturn,
     Optional,
+    Type,
+    TypeVar,
+    Union,
     overload,
 )
+from typing_extensions import Self
+import warnings
 
-from nonebot.log import logger
-from nonebot.internal.rule import Rule
-from nonebot.utils import classproperty
-from nonebot.dependencies import Param, Dependent
-from nonebot.internal.permission import User, Permission
+from exceptiongroup import BaseExceptionGroup, catch
+
+from nonebot.consts import (
+    ARG_KEY,
+    LAST_RECEIVE_KEY,
+    PAUSE_PROMPT_RESULT_KEY,
+    RECEIVE_KEY,
+    REJECT_CACHE_TARGET,
+    REJECT_PROMPT_RESULT_KEY,
+    REJECT_TARGET,
+)
+from nonebot.dependencies import Dependent, Param
+from nonebot.exception import (
+    FinishedException,
+    PausedException,
+    RejectedException,
+    SkippedException,
+    StopPropagation,
+)
 from nonebot.internal.adapter import (
     Bot,
     Event,
@@ -34,37 +48,27 @@ from nonebot.internal.adapter import (
     MessageSegment,
     MessageTemplate,
 )
-from nonebot.typing import (
-    T_State,
-    T_Handler,
-    T_TypeUpdater,
-    T_DependencyCache,
-    T_PermissionUpdater,
-)
-from nonebot.consts import (
-    ARG_KEY,
-    RECEIVE_KEY,
-    REJECT_TARGET,
-    LAST_RECEIVE_KEY,
-    REJECT_CACHE_TARGET,
-)
-from nonebot.exception import (
-    PausedException,
-    StopPropagation,
-    SkippedException,
-    FinishedException,
-    RejectedException,
-)
 from nonebot.internal.params import (
-    Depends,
     ArgParam,
     BotParam,
-    EventParam,
-    StateParam,
-    DependParam,
     DefaultParam,
+    DependParam,
+    Depends,
+    EventParam,
     MatcherParam,
+    StateParam,
 )
+from nonebot.internal.permission import Permission, User
+from nonebot.internal.rule import Rule
+from nonebot.log import logger
+from nonebot.typing import (
+    T_DependencyCache,
+    T_Handler,
+    T_PermissionUpdater,
+    T_State,
+    T_TypeUpdater,
+)
+from nonebot.utils import classproperty, flatten_exception_group
 
 from . import matchers
 
@@ -76,15 +80,15 @@ T = TypeVar("T")
 current_bot: ContextVar[Bot] = ContextVar("current_bot")
 current_event: ContextVar[Event] = ContextVar("current_event")
 current_matcher: ContextVar["Matcher"] = ContextVar("current_matcher")
-current_handler: ContextVar[Dependent] = ContextVar("current_handler")
+current_handler: ContextVar[Dependent[Any]] = ContextVar("current_handler")
 
 
 @dataclass
 class MatcherSource:
     """Matcher 源代码上下文信息"""
 
-    plugin_name: Optional[str] = None
-    """事件响应器所在插件名称"""
+    plugin_id: Optional[str] = None
+    """事件响应器所在插件标识符"""
     module_name: Optional[str] = None
     """事件响应器所在插件模块的路径名"""
     lineno: Optional[int] = None
@@ -95,8 +99,13 @@ class MatcherSource:
         """事件响应器所在插件"""
         from nonebot.plugin import get_plugin
 
-        if self.plugin_name is not None:
-            return get_plugin(self.plugin_name)
+        if self.plugin_id is not None:
+            return get_plugin(self.plugin_id)
+
+    @property
+    def plugin_name(self) -> Optional[str]:
+        """事件响应器所在插件名"""
+        return self.plugin and self.plugin.name
 
     @property
     def module(self) -> Optional[ModuleType]:
@@ -245,7 +254,7 @@ class Matcher(metaclass=MatcherMeta):
             )
         source = source or (
             MatcherSource(
-                plugin_name=plugin and plugin.name,
+                plugin_id=plugin and plugin.id_,
                 module_name=module and module.__name__,
             )
             if plugin is not None or module is not None
@@ -328,14 +337,19 @@ class Matcher(metaclass=MatcherMeta):
         return cls._source and cls._source.plugin
 
     @classproperty
-    def module(cls) -> Optional[ModuleType]:
-        """事件响应器所在插件模块"""
-        return cls._source and cls._source.module
+    def plugin_id(cls) -> Optional[str]:
+        """事件响应器所在插件标识符"""
+        return cls._source and cls._source.plugin_id
 
     @classproperty
     def plugin_name(cls) -> Optional[str]:
         """事件响应器所在插件名"""
         return cls._source and cls._source.plugin_name
+
+    @classproperty
+    def module(cls) -> Optional[ModuleType]:
+        """事件响应器所在插件模块"""
+        return cls._source and cls._source.module
 
     @classproperty
     def module_name(cls) -> Optional[str]:
@@ -548,8 +562,8 @@ class Matcher(metaclass=MatcherMeta):
         """
         bot = current_bot.get()
         event = current_event.get()
-        state = current_matcher.get().state
         if isinstance(message, MessageTemplate):
+            state = current_matcher.get().state
             _message = message.format(**state)
         else:
             _message = message
@@ -585,8 +599,15 @@ class Matcher(metaclass=MatcherMeta):
             kwargs: {ref}`nonebot.adapters.Bot.send` 的参数，
                 请参考对应 adapter 的 bot 对象 api
         """
+        try:
+            matcher = current_matcher.get()
+        except Exception:
+            matcher = None
+
         if prompt is not None:
-            await cls.send(prompt, **kwargs)
+            result = await cls.send(prompt, **kwargs)
+            if matcher is not None:
+                matcher.state[PAUSE_PROMPT_RESULT_KEY] = result
         raise PausedException
 
     @classmethod
@@ -603,8 +624,19 @@ class Matcher(metaclass=MatcherMeta):
             kwargs: {ref}`nonebot.adapters.Bot.send` 的参数，
                 请参考对应 adapter 的 bot 对象 api
         """
+        try:
+            matcher = current_matcher.get()
+            key = matcher.get_target()
+        except Exception:
+            matcher = None
+            key = None
+
+        key = REJECT_PROMPT_RESULT_KEY.format(key=key) if key is not None else None
+
         if prompt is not None:
-            await cls.send(prompt, **kwargs)
+            result = await cls.send(prompt, **kwargs)
+            if key is not None and matcher:
+                matcher.state[key] = result
         raise RejectedException
 
     @classmethod
@@ -624,9 +656,12 @@ class Matcher(metaclass=MatcherMeta):
                 请参考对应 adapter 的 bot 对象 api
         """
         matcher = current_matcher.get()
-        matcher.set_target(ARG_KEY.format(key=key))
+        arg_key = ARG_KEY.format(key=key)
+        matcher.set_target(arg_key)
+
         if prompt is not None:
-            await cls.send(prompt, **kwargs)
+            result = await cls.send(prompt, **kwargs)
+            matcher.state[REJECT_PROMPT_RESULT_KEY.format(key=arg_key)] = result
         raise RejectedException
 
     @classmethod
@@ -646,9 +681,12 @@ class Matcher(metaclass=MatcherMeta):
                 请参考对应 adapter 的 bot 对象 api
         """
         matcher = current_matcher.get()
-        matcher.set_target(RECEIVE_KEY.format(id=id))
+        receive_key = RECEIVE_KEY.format(id=id)
+        matcher.set_target(receive_key)
+
         if prompt is not None:
-            await cls.send(prompt, **kwargs)
+            result = await cls.send(prompt, **kwargs)
+            matcher.state[REJECT_PROMPT_RESULT_KEY.format(key=receive_key)] = result
         raise RejectedException
 
     @classmethod
@@ -802,28 +840,34 @@ class Matcher(metaclass=MatcherMeta):
             f"bot={bot}, event={event!r}, state={state!r}"
         )
 
+        def _handle_stop_propagation(exc_group: BaseExceptionGroup[StopPropagation]):
+            self.block = True
+
         with self.ensure_context(bot, event):
             try:
-                # Refresh preprocess state
-                self.state.update(state)
+                with catch({StopPropagation: _handle_stop_propagation}):
+                    # Refresh preprocess state
+                    self.state.update(state)
 
-                while self.remain_handlers:
-                    handler = self.remain_handlers.pop(0)
-                    current_handler.set(handler)
-                    logger.debug(f"Running handler {handler}")
-                    try:
-                        await handler(
-                            matcher=self,
-                            bot=bot,
-                            event=event,
-                            state=self.state,
-                            stack=stack,
-                            dependency_cache=dependency_cache,
-                        )
-                    except SkippedException:
-                        logger.debug(f"Handler {handler} skipped")
-            except StopPropagation:
-                self.block = True
+                    while self.remain_handlers:
+                        handler = self.remain_handlers.pop(0)
+                        current_handler.set(handler)
+                        logger.debug(f"Running handler {handler}")
+
+                        def _handle_skipped(
+                            exc_group: BaseExceptionGroup[SkippedException],
+                        ):
+                            logger.debug(f"Handler {handler} skipped")
+
+                        with catch({SkippedException: _handle_skipped}):
+                            await handler(
+                                matcher=self,
+                                bot=bot,
+                                event=event,
+                                state=self.state,
+                                stack=stack,
+                                dependency_cache=dependency_cache,
+                            )
             finally:
                 logger.info(f"{self} running complete")
 
@@ -836,10 +880,54 @@ class Matcher(metaclass=MatcherMeta):
         stack: Optional[AsyncExitStack] = None,
         dependency_cache: Optional[T_DependencyCache] = None,
     ):
-        try:
+        exc: Optional[Union[FinishedException, RejectedException, PausedException]] = (
+            None
+        )
+
+        def _handle_special_exception(
+            exc_group: BaseExceptionGroup[
+                Union[FinishedException, RejectedException, PausedException]
+            ],
+        ):
+            nonlocal exc
+            excs = list(flatten_exception_group(exc_group))
+            if len(excs) > 1:
+                logger.warning(
+                    "Multiple session control exceptions occurred. "
+                    "NoneBot will choose the proper one."
+                )
+                finished_exc = next(
+                    (e for e in excs if isinstance(e, FinishedException)),
+                    None,
+                )
+                rejected_exc = next(
+                    (e for e in excs if isinstance(e, RejectedException)),
+                    None,
+                )
+                paused_exc = next(
+                    (e for e in excs if isinstance(e, PausedException)),
+                    None,
+                )
+                exc = finished_exc or rejected_exc or paused_exc
+            elif isinstance(
+                excs[0], (FinishedException, RejectedException, PausedException)
+            ):
+                exc = excs[0]
+
+        with catch(
+            {
+                (
+                    FinishedException,
+                    RejectedException,
+                    PausedException,
+                ): _handle_special_exception
+            }
+        ):
             await self.simple_run(bot, event, state, stack, dependency_cache)
 
-        except RejectedException:
+        if isinstance(exc, FinishedException):
+            pass
+        elif isinstance(exc, RejectedException):
             await self.resolve_reject()
             type_ = await self.update_type(bot, event, stack, dependency_cache)
             permission = await self.update_permission(
@@ -860,7 +948,7 @@ class Matcher(metaclass=MatcherMeta):
                 default_type_updater=self.__class__._default_type_updater,
                 default_permission_updater=self.__class__._default_permission_updater,
             )
-        except PausedException:
+        elif isinstance(exc, PausedException):
             type_ = await self.update_type(bot, event, stack, dependency_cache)
             permission = await self.update_permission(
                 bot, event, stack, dependency_cache
@@ -880,5 +968,3 @@ class Matcher(metaclass=MatcherMeta):
                 default_type_updater=self.__class__._default_type_updater,
                 default_permission_updater=self.__class__._default_permission_updater,
             )
-        except FinishedException:
-            pass

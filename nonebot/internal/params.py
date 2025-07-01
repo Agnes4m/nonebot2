@@ -1,37 +1,47 @@
-import asyncio
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from enum import Enum
 import inspect
-from typing_extensions import Self, get_args, override, get_origin
-from contextlib import AsyncExitStack, contextmanager, asynccontextmanager
 from typing import (
     TYPE_CHECKING,
-    Any,
-    Union,
-    Literal,
-    Callable,
-    Optional,
     Annotated,
+    Any,
+    Callable,
+    Literal,
+    Optional,
+    Union,
     cast,
 )
+from typing_extensions import Self, get_args, get_origin, override
 
+import anyio
+from exceptiongroup import BaseExceptionGroup, catch
 from pydantic.fields import FieldInfo as PydanticFieldInfo
 
-from nonebot.dependencies import Param, Dependent
-from nonebot.dependencies.utils import check_field_type
-from nonebot.typing import T_State, T_Handler, T_DependencyCache
 from nonebot.compat import FieldInfo, ModelField, PydanticUndefined, extract_field_info
+from nonebot.consts import ARG_KEY, REJECT_PROMPT_RESULT_KEY
+from nonebot.dependencies import Dependent, Param
+from nonebot.dependencies.utils import check_field_type
+from nonebot.exception import SkippedException
+from nonebot.typing import (
+    _STATE_FLAG,
+    T_DependencyCache,
+    T_Handler,
+    T_State,
+    origin_is_annotated,
+)
 from nonebot.utils import (
+    generic_check_issubclass,
     get_name,
-    run_sync,
-    is_gen_callable,
-    run_sync_ctx_manager,
     is_async_gen_callable,
     is_coroutine_callable,
-    generic_check_issubclass,
+    is_gen_callable,
+    run_sync,
+    run_sync_ctx_manager,
 )
 
 if TYPE_CHECKING:
+    from nonebot.adapters import Bot, Event, Message
     from nonebot.matcher import Matcher
-    from nonebot.adapters import Bot, Event
 
 
 class DependsInner:
@@ -87,6 +97,78 @@ def Depends(
     return DependsInner(dependency, use_cache=use_cache, validate=validate)
 
 
+class CacheState(str, Enum):
+    """子依赖缓存状态"""
+
+    PENDING = "PENDING"
+    FINISHED = "FINISHED"
+
+
+class DependencyCache:
+    """子依赖结果缓存。
+
+    用于缓存子依赖的结果，以避免重复计算。
+    """
+
+    def __init__(self):
+        self._state = CacheState.PENDING
+        self._result: Any = None
+        self._exception: Optional[BaseException] = None
+        self._waiter = anyio.Event()
+
+    def done(self) -> bool:
+        return self._state == CacheState.FINISHED
+
+    def result(self) -> Any:
+        """获取子依赖结果"""
+
+        if self._state != CacheState.FINISHED:
+            raise RuntimeError("Result is not ready")
+
+        if self._exception is not None:
+            raise self._exception
+        return self._result
+
+    def exception(self) -> Optional[BaseException]:
+        """获取子依赖异常"""
+
+        if self._state != CacheState.FINISHED:
+            raise RuntimeError("Result is not ready")
+
+        return self._exception
+
+    def set_result(self, result: Any) -> None:
+        """设置子依赖结果"""
+
+        if self._state != CacheState.PENDING:
+            raise RuntimeError(f"Cache state invalid: {self._state}")
+
+        self._result = result
+        self._state = CacheState.FINISHED
+        self._waiter.set()
+
+    def set_exception(self, exception: BaseException) -> None:
+        """设置子依赖异常"""
+
+        if self._state != CacheState.PENDING:
+            raise RuntimeError(f"Cache state invalid: {self._state}")
+
+        self._exception = exception
+        self._state = CacheState.FINISHED
+        self._waiter.set()
+
+    async def wait(self):
+        """等待子依赖结果"""
+        await self._waiter.wait()
+        if self._state != CacheState.FINISHED:
+            raise RuntimeError("Invalid cache state")
+
+        if self._exception is not None:
+            raise self._exception
+
+        return self._result
+
+
 class DependParam(Param):
     """子依赖注入参数。
 
@@ -96,7 +178,7 @@ class DependParam(Param):
     """
 
     def __init__(
-        self, *args, dependent: Dependent, use_cache: bool, **kwargs: Any
+        self, *args, dependent: Dependent[Any], use_cache: bool, **kwargs: Any
     ) -> None:
         super().__init__(*args, **kwargs)
         self.dependent = dependent
@@ -108,7 +190,7 @@ class DependParam(Param):
     @classmethod
     def _from_field(
         cls,
-        sub_dependent: Dependent,
+        sub_dependent: Dependent[Any],
         use_cache: bool,
         validate: Union[bool, PydanticFieldInfo],
     ) -> Self:
@@ -146,9 +228,9 @@ class DependParam(Param):
         dependency: T_Handler
         # sub dependency is not specified, use type annotation
         if depends_inner.dependency is None:
-            assert (
-                type_annotation is not inspect.Signature.empty
-            ), "Dependency cannot be empty"
+            assert type_annotation is not inspect.Signature.empty, (
+                "Dependency cannot be empty"
+            )
             dependency = type_annotation
         else:
             dependency = depends_inner.dependency
@@ -184,39 +266,60 @@ class DependParam(Param):
         use_cache: bool = self.use_cache
         dependency_cache = {} if dependency_cache is None else dependency_cache
 
-        sub_dependent: Dependent = self.dependent
+        sub_dependent = self.dependent
         call = cast(Callable[..., Any], sub_dependent.call)
 
         # solve sub dependency with current cache
-        sub_values = await sub_dependent.solve(
-            stack=stack,
-            dependency_cache=dependency_cache,
-            **kwargs,
-        )
+        exc: Optional[BaseExceptionGroup[SkippedException]] = None
+
+        def _handle_skipped(exc_group: BaseExceptionGroup[SkippedException]):
+            nonlocal exc
+            exc = exc_group
+
+        with catch({SkippedException: _handle_skipped}):
+            sub_values = await sub_dependent.solve(
+                stack=stack,
+                dependency_cache=dependency_cache,
+                **kwargs,
+            )
+
+        if exc is not None:
+            raise exc
 
         # run dependency function
-        task: asyncio.Task[Any]
         if use_cache and call in dependency_cache:
-            return await dependency_cache[call]
-        elif is_gen_callable(call) or is_async_gen_callable(call):
-            assert isinstance(
-                stack, AsyncExitStack
-            ), "Generator dependency should be called in context"
+            return await dependency_cache[call].wait()
+
+        if is_gen_callable(call) or is_async_gen_callable(call):
+            assert isinstance(stack, AsyncExitStack), (
+                "Generator dependency should be called in context"
+            )
             if is_gen_callable(call):
                 cm = run_sync_ctx_manager(contextmanager(call)(**sub_values))
             else:
                 cm = asynccontextmanager(call)(**sub_values)
-            task = asyncio.create_task(stack.enter_async_context(cm))
-            dependency_cache[call] = task
-            return await task
+
+            target = stack.enter_async_context(cm)
         elif is_coroutine_callable(call):
-            task = asyncio.create_task(call(**sub_values))
-            dependency_cache[call] = task
-            return await task
+            target = call(**sub_values)
         else:
-            task = asyncio.create_task(run_sync(call)(**sub_values))
-            dependency_cache[call] = task
-            return await task
+            target = run_sync(call)(**sub_values)
+
+        dependency_cache[call] = cache = DependencyCache()
+        try:
+            result = await target
+        except Exception as e:
+            cache.set_exception(e)
+            raise
+        except BaseException as e:
+            cache.set_exception(e)
+            # remove cache when base exception occurs
+            # e.g. CancelledError
+            dependency_cache.pop(call, None)
+            raise
+        else:
+            cache.set_result(result)
+            return result
 
     @override
     async def _check(self, **kwargs: Any) -> None:
@@ -349,7 +452,9 @@ class StateParam(Param):
         cls, param: inspect.Parameter, allow_types: tuple[type[Param], ...]
     ) -> Optional[Self]:
         # param type is T_State
-        if param.annotation is T_State:
+        if origin_is_annotated(
+            get_origin(param.annotation)
+        ) and _STATE_FLAG in get_args(param.annotation):
             return cls()
         # legacy: param is named "state" and has no type annotation
         elif param.annotation == param.empty and param.name == "state":
@@ -418,10 +523,10 @@ class MatcherParam(Param):
 
 class ArgInner:
     def __init__(
-        self, key: Optional[str], type: Literal["message", "str", "plaintext"]
+        self, key: Optional[str], type: Literal["message", "str", "plaintext", "prompt"]
     ) -> None:
         self.key: Optional[str] = key
-        self.type: Literal["message", "str", "plaintext"] = type
+        self.type: Literal["message", "str", "plaintext", "prompt"] = type
 
     def __repr__(self) -> str:
         return f"ArgInner(key={self.key!r}, type={self.type!r})"
@@ -442,6 +547,11 @@ def ArgPlainText(key: Optional[str] = None) -> str:
     return ArgInner(key, "plaintext")  # type: ignore
 
 
+def ArgPromptResult(key: Optional[str] = None) -> Any:
+    """`arg` prompt 发送结果"""
+    return ArgInner(key, "prompt")
+
+
 class ArgParam(Param):
     """Arg 注入参数
 
@@ -455,7 +565,7 @@ class ArgParam(Param):
         self,
         *args,
         key: str,
-        type: Literal["message", "str", "plaintext"],
+        type: Literal["message", "str", "plaintext", "prompt"],
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -480,15 +590,32 @@ class ArgParam(Param):
     async def _solve(  # pyright: ignore[reportIncompatibleMethodOverride]
         self, matcher: "Matcher", **kwargs: Any
     ) -> Any:
-        message = matcher.get_arg(self.key)
-        if message is None:
-            return message
         if self.type == "message":
-            return message
+            return self._solve_message(matcher)
         elif self.type == "str":
-            return str(message)
+            return self._solve_str(matcher)
+        elif self.type == "plaintext":
+            return self._solve_plaintext(matcher)
+        elif self.type == "prompt":
+            return self._solve_prompt(matcher)
         else:
-            return message.extract_plain_text()
+            raise ValueError(f"Unknown Arg type: {self.type}")
+
+    def _solve_message(self, matcher: "Matcher") -> Optional["Message"]:
+        return matcher.get_arg(self.key)
+
+    def _solve_str(self, matcher: "Matcher") -> Optional[str]:
+        message = matcher.get_arg(self.key)
+        return str(message) if message is not None else None
+
+    def _solve_plaintext(self, matcher: "Matcher") -> Optional[str]:
+        message = matcher.get_arg(self.key)
+        return message.extract_plain_text() if message is not None else None
+
+    def _solve_prompt(self, matcher: "Matcher") -> Optional[Any]:
+        return matcher.state.get(
+            REJECT_PROMPT_RESULT_KEY.format(key=ARG_KEY.format(key=self.key))
+        )
 
 
 class ExceptionParam(Param):

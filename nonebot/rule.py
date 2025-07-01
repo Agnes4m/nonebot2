@@ -5,28 +5,29 @@
 只有当所有 `RuleChecker` 检查结果为 `True` 时继续运行。
 
 FrontMatter:
+    mdx:
+        format: md
     sidebar_position: 5
     description: nonebot.rule 模块
 """
 
+from argparse import Action, ArgumentError
+from argparse import ArgumentParser as ArgParser
+from argparse import Namespace as Namespace
+from collections.abc import Sequence
+from contextvars import ContextVar
+from gettext import gettext
+from itertools import chain, product
 import re
 import shlex
-from argparse import Action
-from gettext import gettext
-from argparse import ArgumentError
-from contextvars import ContextVar
-from collections.abc import Sequence
-from itertools import chain, product
-from argparse import Namespace as Namespace
-from argparse import ArgumentParser as ArgParser
 from typing import (
     IO,
     TYPE_CHECKING,
-    Union,
-    TypeVar,
+    NamedTuple,
     Optional,
     TypedDict,
-    NamedTuple,
+    TypeVar,
+    Union,
     cast,
     overload,
 )
@@ -34,27 +35,27 @@ from typing import (
 from pygtrie import CharTrie
 
 from nonebot import get_driver
-from nonebot.log import logger
-from nonebot.typing import T_State
-from nonebot.exception import ParserExit
-from nonebot.internal.rule import Rule as Rule
 from nonebot.adapters import Bot, Event, Message, MessageSegment
-from nonebot.params import Command, EventToMe, CommandArg, CommandWhitespace
 from nonebot.consts import (
+    CMD_ARG_KEY,
     CMD_KEY,
+    CMD_START_KEY,
+    CMD_WHITESPACE_KEY,
+    ENDSWITH_KEY,
+    FULLMATCH_KEY,
+    KEYWORD_KEY,
     PREFIX_KEY,
+    RAW_CMD_KEY,
+    REGEX_MATCHED,
     SHELL_ARGS,
     SHELL_ARGV,
-    CMD_ARG_KEY,
-    KEYWORD_KEY,
-    RAW_CMD_KEY,
-    ENDSWITH_KEY,
-    CMD_START_KEY,
-    FULLMATCH_KEY,
-    REGEX_MATCHED,
     STARTSWITH_KEY,
-    CMD_WHITESPACE_KEY,
 )
+from nonebot.exception import ParserExit
+from nonebot.internal.rule import Rule as Rule
+from nonebot.log import logger
+from nonebot.params import Command, CommandArg, CommandWhitespace, EventToMe
+from nonebot.typing import T_State
 
 T = TypeVar("T")
 
@@ -144,7 +145,7 @@ class StartswithRule:
         ignorecase: 是否忽略大小写
     """
 
-    __slots__ = ("msg", "ignorecase")
+    __slots__ = ("ignorecase", "msg")
 
     def __init__(self, msg: tuple[str, ...], ignorecase: bool = False):
         self.msg = msg
@@ -199,7 +200,7 @@ class EndswithRule:
         ignorecase: 是否忽略大小写
     """
 
-    __slots__ = ("msg", "ignorecase")
+    __slots__ = ("ignorecase", "msg")
 
     def __init__(self, msg: tuple[str, ...], ignorecase: bool = False):
         self.msg = msg
@@ -254,7 +255,7 @@ class FullmatchRule:
         ignorecase: 是否忽略大小写
     """
 
-    __slots__ = ("msg", "ignorecase")
+    __slots__ = ("ignorecase", "msg")
 
     def __init__(self, msg: tuple[str, ...], ignorecase: bool = False):
         self.msg = tuple(map(str.casefold, msg) if ignorecase else msg)
@@ -508,7 +509,7 @@ class ArgumentParser(ArgParser):
             super()._parse_optional(arg_string) if isinstance(arg_string, str) else None
         )
 
-    def _print_message(self, message: str, file: Optional[IO[str]] = None):
+    def _print_message(self, message: str, file: Optional[IO[str]] = None):  # type: ignore
         if (msg := parser_message.get(None)) is not None:
             parser_message.set(msg + message)
         else:
@@ -556,12 +557,22 @@ class ShellCommandRule:
         if cmd not in self.cmds or msg is None:
             return False
 
-        state[SHELL_ARGV] = list(
-            chain.from_iterable(
-                shlex.split(str(seg)) if cast(MessageSegment, seg).is_text() else (seg,)
-                for seg in msg
+        try:
+            state[SHELL_ARGV] = list(
+                chain.from_iterable(
+                    shlex.split(str(seg))
+                    if cast(MessageSegment, seg).is_text()
+                    else (seg,)
+                    for seg in msg
+                )
             )
-        )
+        except Exception as e:
+            # set SHELL_ARGV to none indicating shlex error
+            state[SHELL_ARGV] = None
+            # ensure SHELL_ARGS is set to ParserExit if parser is provided
+            if self.parser:
+                state[SHELL_ARGS] = ParserExit(status=2, message=str(e))
+            return True
 
         if self.parser:
             t = parser_message.set("")
@@ -653,7 +664,7 @@ class RegexRule:
         flags: 正则表达式标记
     """
 
-    __slots__ = ("regex", "flags")
+    __slots__ = ("flags", "regex")
 
     def __init__(self, regex: str, flags: int = 0):
         self.regex = regex

@@ -1,38 +1,40 @@
 """本模块定义事件响应器便携定义函数。
 
 FrontMatter:
+    mdx:
+        format: md
     sidebar_position: 2
     description: nonebot.plugin.on 模块
 """
 
-import re
-import inspect
-import warnings
-from types import ModuleType
-from typing import Any, Union, Optional
 from datetime import datetime, timedelta
+import inspect
+import re
+from types import ModuleType
+from typing import Any, Optional, Union
+import warnings
 
 from nonebot.adapters import Event
-from nonebot.permission import Permission
 from nonebot.dependencies import Dependent
 from nonebot.matcher import Matcher, MatcherSource
-from nonebot.typing import T_State, T_Handler, T_RuleChecker, T_PermissionChecker
+from nonebot.permission import Permission
 from nonebot.rule import (
-    Rule,
     ArgumentParser,
-    regex,
+    Rule,
     command,
-    is_type,
-    keyword,
     endswith,
     fullmatch,
-    startswith,
+    is_type,
+    keyword,
+    regex,
     shell_command,
+    startswith,
 )
+from nonebot.typing import T_Handler, T_PermissionChecker, T_RuleChecker, T_State
 
-from .model import Plugin
 from . import get_plugin_by_module_name
-from .manager import _current_plugin_chain
+from .manager import _current_plugin
+from .model import Plugin
 
 
 def store_matcher(matcher: type[Matcher]) -> None:
@@ -42,8 +44,8 @@ def store_matcher(matcher: type[Matcher]) -> None:
         matcher: 事件响应器
     """
     # only store the matcher defined when plugin loading
-    if plugin_chain := _current_plugin_chain.get():
-        plugin_chain[-1].matcher.add(matcher)
+    if plugin := _current_plugin.get():
+        plugin.matcher.add(matcher)
 
 
 def get_matcher_plugin(depth: int = 1) -> Optional[Plugin]:  # pragma: no cover
@@ -96,16 +98,14 @@ def get_matcher_source(depth: int = 0) -> Optional[MatcherSource]:
 
     module_name = (module := inspect.getmodule(frame)) and module.__name__
 
-    plugin: Optional["Plugin"] = None
     # matcher defined when plugin loading
-    if plugin_chain := _current_plugin_chain.get():
-        plugin = plugin_chain[-1]
+    plugin: Optional["Plugin"] = _current_plugin.get()
     # matcher defined when plugin running
-    elif module_name:
+    if plugin is None and module_name:
         plugin = get_plugin_by_module_name(module_name)
 
     return MatcherSource(
-        plugin_name=plugin and plugin.name,
+        plugin_id=plugin and plugin.id_,
         module_name=module_name,
         lineno=frame.f_lineno,
     )
@@ -116,7 +116,7 @@ def on(
     rule: Optional[Union[Rule, T_RuleChecker]] = None,
     permission: Optional[Union[Permission, T_PermissionChecker]] = None,
     *,
-    handlers: Optional[list[Union[T_Handler, Dependent]]] = None,
+    handlers: Optional[list[Union[T_Handler, Dependent[Any]]]] = None,
     temp: bool = False,
     expire_time: Optional[Union[datetime, timedelta]] = None,
     priority: int = 1,

@@ -1,18 +1,18 @@
 import abc
-from copy import deepcopy
-from typing_extensions import Self
 from collections.abc import Iterable
-from dataclasses import field, asdict, dataclass
+from copy import deepcopy
+from dataclasses import asdict, dataclass, field
 from typing import (  # noqa: UP035
     Any,
-    Type,
-    Union,
     Generic,
-    TypeVar,
     Optional,
     SupportsIndex,
+    Type,
+    TypeVar,
+    Union,
     overload,
 )
+from typing_extensions import Self
 
 from nonebot.compat import custom_validation, type_validate_python
 
@@ -51,10 +51,10 @@ class MessageSegment(abc.ABC, Generic[TM]):
     ) -> bool:
         return not self == other
 
-    def __add__(self: TMS, other: Union[str, TMS, Iterable[TMS]]) -> TM:
+    def __add__(self, other: Union[str, Self, Iterable[Self]]) -> TM:
         return self.get_message_class()(self) + other
 
-    def __radd__(self: TMS, other: Union[str, TMS, Iterable[TMS]]) -> TM:
+    def __radd__(self, other: Union[str, Self, Iterable[Self]]) -> TM:
         return self.get_message_class()(other) + self
 
     @classmethod
@@ -87,7 +87,7 @@ class MessageSegment(abc.ABC, Generic[TM]):
     def items(self):
         return asdict(self).items()
 
-    def join(self: TMS, iterable: Iterable[Union[TMS, TM]]) -> TM:
+    def join(self, iterable: Iterable[Union[Self, TM]]) -> TM:
         return self.get_message_class()(self).join(iterable)
 
     def copy(self) -> Self:
@@ -329,8 +329,9 @@ class Message(list[TMS], abc.ABC):
             return self[type_]
 
         iterator, filtered = (
-            seg for seg in self if seg.type == type_
-        ), self.__class__()
+            (seg for seg in self if seg.type == type_),
+            self.__class__(),
+        )
         for _ in range(count):
             seg = next(iterator, None)
             if seg is None:

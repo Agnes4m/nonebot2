@@ -7,27 +7,26 @@ NoneBot 使用 [`pydantic`](https://pydantic-docs.helpmanual.io/) 以及
 详情见 [`pydantic Field Type`](https://pydantic-docs.helpmanual.io/usage/types/) 文档。
 
 FrontMatter:
+    mdx:
+        format: md
     sidebar_position: 1
     description: nonebot.config 模块
 """
 
-import os
 import abc
-import json
-from pathlib import Path
+from collections.abc import Mapping
 from datetime import timedelta
 from ipaddress import IPv4Address
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Union, Optional
+import json
+import os
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional, Union
 from typing_extensions import TypeAlias, get_args, get_origin
 
 from dotenv import dotenv_values
-from pydantic import Field, BaseModel
+from pydantic import BaseModel, Field
 from pydantic.networks import IPvAnyAddress
 
-from nonebot.log import logger
-from nonebot.typing import origin_is_union
-from nonebot.utils import deep_update, type_is_complex, lenient_issubclass
 from nonebot.compat import (
     PYDANTIC_V2,
     ConfigDict,
@@ -37,6 +36,9 @@ from nonebot.compat import (
     model_config,
     model_fields,
 )
+from nonebot.log import logger
+from nonebot.typing import origin_is_union
+from nonebot.utils import deep_update, lenient_issubclass, type_is_complex
 
 DOTENV_TYPE: TypeAlias = Union[
     Path, str, list[Union[Path, str]], tuple[Union[Path, str], ...]
@@ -173,8 +175,7 @@ class DotEnvSettingsSource(BaseSettingsSource):
                 continue
 
             # delete from file vars when used
-            if env_name in env_file_vars:
-                del env_file_vars[env_name]
+            env_file_vars.pop(env_name, None)
 
             _, *keys, last_key = env_name.split(self.env_nested_delimiter)
             env_var = result

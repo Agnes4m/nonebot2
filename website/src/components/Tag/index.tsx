@@ -5,7 +5,8 @@ import clsx from "clsx";
 import "./styles.css";
 
 import { pickTextColor } from "@/libs/color";
-import { Tag as TagType } from "@/types/tag";
+
+import type { Tag as TagType } from "@/types/tag";
 
 export default function Tag({
   label,
@@ -15,7 +16,7 @@ export default function Tag({
 }: TagType & {
   className?: string;
   onClick?: React.MouseEventHandler<HTMLSpanElement>;
-}): JSX.Element {
+}): React.ReactNode {
   return (
     <span
       className={clsx("tag", className)}

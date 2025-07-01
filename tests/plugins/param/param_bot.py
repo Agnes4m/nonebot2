@@ -1,9 +1,13 @@
-from typing import Union, TypeVar
+from typing import TypeVar, Union
 
 from nonebot.adapters import Bot
 
 
 async def get_bot(b: Bot) -> Bot:
+    return b
+
+
+async def postpone_bot(b: "Bot") -> Bot:
     return b
 
 

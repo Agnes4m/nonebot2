@@ -25,12 +25,12 @@ export type Props = {
 export default function AsciinemaContainer({
   url,
   options = {},
-}: Props): JSX.Element {
+}: Props): React.ReactNode {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     AsciinemaPlayer.create(url, ref.current, options);
   }, [url, options]);
 
-  return <div ref={ref} className="not-prose ap-container"></div>;
+  return <div ref={ref} className="not-prose ap-container" />;
 }

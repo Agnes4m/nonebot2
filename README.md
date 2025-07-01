@@ -118,20 +118,27 @@ NoneBot2 是一个现代、跨平台、可扩展的 Python 聊天机器人框架
   |         GitHub（[仓库](https://github.com/nonebot/adapter-github)，[协议](https://docs.github.com/en/apps)）          |  ✅  |                          GitHub APP & OAuth APP                           |
   |                QQ（[仓库](https://github.com/nonebot/adapter-qq)，[协议](https://bot.q.qq.com/wiki/)）                |  ✅  |                            QQ 官方接口调整较多                            |
   |                             Console（[仓库](https://github.com/nonebot/adapter-console)）                             |  ✅  |                                控制台交互                                 |
-  |     Red（[仓库](https://github.com/nonebot/adapter-red)，[协议](https://chrononeko.github.io/QQNTRedProtocol/)）      |  ✅  |                                  QQ 协议                                  |
+  |     Red（[仓库](https://github.com/nonebot/adapter-red)，[协议](https://chrononeko.github.io/QQNTRedProtocol/)）      |  ✅  |                                 QQNT 协议                                  |
   |           Satori（[仓库](https://github.com/nonebot/adapter-satori)，[协议](https://satori.js.org/zh-CN)）            |  ✅  |               支持 Onebot、TG、飞书、微信公众号、Koishi 等                |
   |   Discord（[仓库](https://github.com/nonebot/adapter-discord)，[协议](https://discord.com/developers/docs/intro)）    |  ✅  |                             Discord Bot 协议                              |
   |               DoDo（[仓库](https://github.com/nonebot/adapter-dodo)，[协议](https://open.imdodo.com/)）               |  ✅  |                               DoDo Bot 协议                               |
-  |        Kritor（[仓库](https://github.com/nonebot/adapter-kritor)，[协议](https://github.com/KarinJS/kritor)）         |  ✅  |                 Kritor (OnebotX) 协议，QQ 机器人接口标准                  |
+  |        Kritor（[仓库](https://github.com/nonebot/adapter-kritor)，[协议](https://github.com/KarinJS/kritor)）         |  ✅  |                Kritor (OnebotX) 协议，QQNT 机器人接口标准                  |
+  |    Mirai（[仓库](https://github.com/nonebot/adapter-mirai)，[协议](https://docs.mirai.mamoe.net/mirai-api-http/)）    |  ✅  |                                  QQ 协议                                  |
+  |    Milky（[仓库](https://github.com/nonebot/adapter-milky)，[协议](https://milky.ntqqrev.org/)）                      |  ✅  |                           QQNT 机器人应用接口标准                          |
   |         钉钉（[仓库](https://github.com/nonebot/adapter-ding)，[协议](https://open.dingtalk.com/document/)）          |  🤗  |                        寻找 Maintainer（暂不可用）                        |
   |     开黑啦（[仓库](https://github.com/Tian-que/nonebot-adapter-kaiheila)，[协议](https://developer.kookapp.cn/)）     |  ↗️  |                                由社区贡献                                 |
-  | Mirai（[仓库](https://github.com/ieew/nonebot_adapter_mirai2)，[协议](https://docs.mirai.mamoe.net/mirai-api-http/)） |  ↗️  |                            QQ 协议，由社区贡献                            |
   |                          Ntchat（[仓库](https://github.com/JustUndertaker/adapter-ntchat)）                           |  ↗️  |                           微信协议，由社区贡献                            |
   |                      MineCraft（[仓库](https://github.com/17TheWord/nonebot-adapter-minecraft)）                      |  ↗️  |                                由社区贡献                                 |
   |                          BiliBili Live（[仓库](https://github.com/wwweww/adapter-bilibili)）                          |  ↗️  |                                由社区贡献                                 |
   |                       Walle-Q（[仓库](https://github.com/onebot-walle/nonebot_adapter_walleq)）                       |  ↗️  |                            QQ 协议，由社区贡献                            |
   |                       Villa（[仓库](https://github.com/CMHopeSunshine/nonebot-adapter-villa)）                        |  ❌  |                     米游社大别野 Bot 协议，官方已下线                     |
   | Rocket.Chat（[仓库](https://github.com/IUnlimit/nonebot-adapter-rocketchat)，[协议](https://developer.rocket.chat/)） |  ↗️  |                     Rocket.Chat Bot 协议，由社区贡献                      |
+  |     Tailchat（[仓库](https://github.com/eya46/nonebot-adapter-tailchat)，[协议](https://tailchat.msgbyte.com/)）      |  ↗️  |                  Tailchat 开放平台 Bot 协议，由社区贡献                   |
+  |                             Mail（[仓库](https://github.com/mobyw/nonebot-adapter-mail)）                             |  ↗️  |                         邮件收发协议，由社区贡献                          |
+  |     黑盒语音（[仓库](https://github.com/lclbm/adapter-heybox)，[协议](https://github.com/QingFengOpen/HeychatDoc)）     |  ↗️  |                       黑盒语音机器人协议，由社区贡献                             |
+  | 微信公众平台（[仓库](https://github.com/YangRucheng/nonebot-adapter-wxmp)，[协议](https://developers.weixin.qq.com/doc/)）|  ↗️  |                       微信公众平台协议，由社区贡献                             |
+  | Gewechat（[仓库](https://github.com/Shine-Light/nonebot-adapter-gewechat)，[协议](https://github.com/Devo919/Gewechat)）|  ❌  |                      Gewechat 微信协议，Gewechat不再维护及可用                            |
+  |  EFChat（[仓库](https://github.com/molanp/nonebot_adapter_efchat)，[协议](https://irinu-live.melon.fish/efc-help/)）   |  ↗️  |                            恒五聊平台协议，由社区贡献                          |
 
 - 坚实后盾：支持多种 web 框架，可自定义替换、组合
 

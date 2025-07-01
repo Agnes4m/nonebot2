@@ -1,14 +1,16 @@
 """本模块定义插件相关信息。
 
 FrontMatter:
+    mdx:
+        format: md
     sidebar_position: 3
     description: nonebot.plugin.model 模块
 """
 
 import contextlib
+from dataclasses import dataclass, field
 from types import ModuleType
-from dataclasses import field, dataclass
-from typing import TYPE_CHECKING, Any, Type, Optional  # noqa: UP035
+from typing import TYPE_CHECKING, Any, Optional, Type  # noqa: UP035
 
 from pydantic import BaseModel
 
@@ -66,7 +68,7 @@ class Plugin:
     """存储插件信息"""
 
     name: str
-    """插件索引标识，NoneBot 使用 文件/文件夹 名称作为标识符"""
+    """插件名称，NoneBot 使用 文件/文件夹 名称作为插件名称"""
     module: ModuleType
     """插件模块对象"""
     module_name: str
@@ -80,3 +82,10 @@ class Plugin:
     sub_plugins: set["Plugin"] = field(default_factory=set)
     """子插件集合"""
     metadata: Optional[PluginMetadata] = None
+
+    @property
+    def id_(self) -> str:
+        """插件索引标识"""
+        return (
+            f"{self.parent_plugin.id_}:{self.name}" if self.parent_plugin else self.name
+        )
